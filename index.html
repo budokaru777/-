@@ -2,16 +2,39 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>担任救出！ARコースターシューティング</title>
 
-  <!-- ライブラリ読み込み -->
-  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+  <!-- 安定動作実績のあるバージョンに固定 -->
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
     body, html { width: 100%; height: 100%; overflow: hidden; font-family: sans-serif; background: #000; }
+
+    /* カメラ映像（videoタグ）を強制表示させる強力なスタイル */
+    video {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      object-fit: cover !important;
+      z-index: -2 !important;
+    }
+
+    /* スタート画面（iOSのカメラ＆音声ブロック解除用） */
+    #start-overlay {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 999;
+      background: rgba(0, 0, 0, 0.9); display: flex; flex-direction: column;
+      justify-content: center; align-items: center; color: #00ffcc; text-align: center; padding: 20px;
+    }
+    #start-btn {
+      background: #00ffcc; color: #000; border: none; padding: 18px 36px;
+      font-size: 22px; font-weight: bold; border-radius: 40px; margin-top: 25px;
+      box-shadow: 0 0 20px #00ffcc; cursor: pointer;
+    }
 
     #ui-layer {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
@@ -62,6 +85,13 @@
 </head>
 <body>
 
+  <!-- スマホ用 スタート画面 (タップでカメラを起動) -->
+  <div id="start-overlay">
+    <h2>担任救出ミッション</h2>
+    <p style="margin-top:10px; font-size:14px; color:#aaa;">タップしてカメラとサウンドを有効化してください</p>
+    <button id="start-btn">GAME START</button>
+  </div>
+
   <div id="ui-layer">
     <div class="hud-header">
       <div>SCORE: <span id="score-val">0</span></div>
@@ -80,39 +110,61 @@
     <button class="btn" onclick="location.reload()">もう一度リトライ</button>
   </div>
 
-  <!-- AR Scene -->
+  <!-- AR Scene (自動起動オフ、タップでJSから起動) -->
   <a-scene 
-    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: yes; uiError: yes;" 
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiLoading: no; uiError: yes;" 
     color-space="sRGB" 
     renderer="colorManagement: true, physicallyCorrectLights" 
     vr-mode-ui="enabled: false" 
     device-orientation-permission-ui="enabled: false">
     
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-    
-    <!-- ターゲット上に表示する3Dオブジェクト -->
-    <a-entity id="target-0" mindar-image-target="targetIndex: 0">
-      <!-- 標的となるオブジェクト（光る球体とテキスト） -->
-      <a-sphere position="0 0.4 0" radius="0.25" color="#ff0055" material="emissive: #ff0055; emissiveIntensity: 0.6;"></a-sphere>
-      <a-box position="0 0 0" width="0.6" height="0.1" depth="0.6" color="#00ffcc"></a-box>
-      <a-text value="SHOOT ME!" position="-0.35 0.7 0" color="#ffffff" scale="0.6 0.6 0.6"></a-text>
-    </a-entity>
+    <a-entity id="target-0" mindar-image-target="targetIndex: 0"></a-entity>
   </a-scene>
 
   <script>
     let score = 0;
     let isTargetVisible = false;
     let isCoolingDown = false;
+    let isGameStarted = false;
 
     const scoreVal = document.getElementById('score-val');
     const hitFlash = document.getElementById('hit-flash');
     const shotFlash = document.getElementById('shot-flash');
     const targetEntity = document.querySelector('#target-0');
+    const startOverlay = document.getElementById('start-overlay');
+    const startBtn = document.getElementById('start-btn');
 
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let audioCtx;
+
+    // スタートボタンを押した時にカメラとWeb Audioを完全起動
+    startBtn.addEventListener('click', async () => {
+      // 1. サウンドのロック解除
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+      // 2. MindARのカメラ起動
+      const sceneEl = document.querySelector('a-scene');
+      const arSystem = sceneEl.systems["mindar-image-system"];
+      
+      try {
+        await arSystem.start(); // 明示的にカメラ起動
+        startOverlay.style.display = 'none'; // スタート画面を消す
+        isGameStarted = true;
+
+        // 40秒タイマー開始
+        setTimeout(() => {
+          document.getElementById('result-modal').style.display = 'flex';
+          document.getElementById('final-score').textContent = score;
+        }, 40000);
+
+      } catch (err) {
+        alert("カメラ起動エラー: " + err.name + "\n" + err.message + "\nGitHubに targets.mind が正しく置かれているか確認してください。");
+      }
+    });
 
     function playShotSE() {
-      if (audioCtx.state === 'suspended') audioCtx.resume();
+      if (!audioCtx) return;
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.type = 'sawtooth';
@@ -127,7 +179,7 @@
     }
 
     function playHitSE() {
-      if (audioCtx.state === 'suspended') audioCtx.resume();
+      if (!audioCtx) return;
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.type = 'square';
@@ -144,7 +196,9 @@
     targetEntity.addEventListener("targetFound", () => { isTargetVisible = true; });
     targetEntity.addEventListener("targetLost", () => { isTargetVisible = false; });
 
-    window.addEventListener('pointerdown', () => {
+    // 画面タップで射撃
+    window.addEventListener('pointerdown', (e) => {
+      if (!isGameStarted || e.target === startBtn) return;
       if (document.getElementById('result-modal').style.display === 'flex') return;
 
       playShotSE();
@@ -162,12 +216,6 @@
         setTimeout(() => { isCoolingDown = false; }, 1000);
       }
     });
-
-    // 40秒後に終了
-    setTimeout(() => {
-      document.getElementById('result-modal').style.display = 'flex';
-      document.getElementById('final-score').textContent = score;
-    }, 40000);
   </script>
 </body>
 </html>
