@@ -5,15 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>担任救出！ARコースターシューティング</title>
 
-  <!-- 1. ライブラリ読み込み (A-Frame & MindAR) -->
+  <!-- ライブラリ読み込み -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-    body, html { width: 100%; height: 100%; overflow: hidden; font-family: 'Helvetica Neue', Arial, sans-serif; background: #000; }
+    body, html { width: 100%; height: 100%; overflow: hidden; font-family: sans-serif; background: #000; }
 
-    /* HUD（スコア・タイマー表示） */
     #ui-layer {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
       display: flex; flex-direction: column; justify-content: space-between; padding: 20px;
@@ -26,7 +25,6 @@
       text-shadow: 0 0 10px rgba(0, 255, 204, 0.8), 0 0 20px #000;
     }
 
-    /* 画面中央の照準 (Crosshair) */
     .crosshair {
       position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
       width: 70px; height: 70px; border: 2px solid rgba(0, 255, 204, 0.6); border-radius: 50%;
@@ -37,38 +35,33 @@
       width: 8px; height: 8px; background: #ff0055; border-radius: 50%; box-shadow: 0 0 8px #ff0055;
     }
 
-    /* 命中（HIT）時のフラッシュエフェクト */
     #hit-flash {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5;
       background: rgba(0, 255, 204, 0.35); opacity: 0; transition: opacity 0.08s ease;
       pointer-events: none;
     }
 
-    /* 発射（Tap）時のマズルフラッシュ */
     #shot-flash {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 4;
       background: rgba(255, 255, 255, 0.15); opacity: 0; transition: opacity 0.05s ease;
       pointer-events: none;
     }
 
-    /* リザルト画面 */
     #result-modal {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 100;
       background: rgba(10, 10, 15, 0.95); color: #fff; display: none;
       flex-direction: column; align-items: center; justify-content: center; padding: 25px; text-align: center;
     }
-    #result-modal h1 { color: #00ffcc; font-size: 28px; margin-bottom: 10px; text-shadow: 0 0 15px #00ffcc; }
-    #result-modal .score-box { font-size: 32px; font-weight: bold; color: #ff0055; margin: 15px 0; }
+    #result-modal h1 { color: #00ffcc; font-size: 28px; margin-bottom: 10px; }
+    .score-box { font-size: 32px; font-weight: bold; color: #ff0055; margin: 15px 0; }
     .btn {
       background: #00ffcc; color: #000; border: none; padding: 14px 28px;
-      font-size: 18px; font-weight: bold; border-radius: 30px; margin-top: 20px;
-      cursor: pointer; box-shadow: 0 0 15px rgba(0,255,204,0.5);
+      font-size: 18px; font-weight: bold; border-radius: 30px; margin-top: 20px; cursor: pointer;
     }
   </style>
 </head>
 <body>
 
-  <!-- UIオーバーレイ -->
   <div id="ui-layer">
     <div class="hud-header">
       <div>SCORE: <span id="score-val">0</span></div>
@@ -77,11 +70,9 @@
     <div class="crosshair"></div>
   </div>
 
-  <!-- 画面演出用エフェクトレイヤー -->
   <div id="hit-flash"></div>
   <div id="shot-flash"></div>
 
-  <!-- リザルト画面 -->
   <div id="result-modal">
     <h1>MISSION COMPLETE!</h1>
     <p>救出作戦が完了しました！</p>
@@ -89,36 +80,30 @@
     <button class="btn" onclick="location.reload()">もう一度リトライ</button>
   </div>
 
-  <!-- 2. ARシーン設定（同じフォルダの targets.mind を指定） -->
+  <!-- AR Scene -->
   <a-scene 
-    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: no; uiError: no;" 
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: yes; uiError: yes;" 
     color-space="sRGB" 
     renderer="colorManagement: true, physicallyCorrectLights" 
     vr-mode-ui="enabled: false" 
     device-orientation-permission-ui="enabled: false">
     
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-
-    <!-- ターゲット（0番目の画像マーク） -->
     <a-entity id="target-0" mindar-image-target="targetIndex: 0"></a-entity>
   </a-scene>
 
   <script>
     let score = 0;
-    let isTargetVisible = false; // カメラ内にターゲットが入っているか
-    let isCoolingDown = false;     // 連打・連続Hit防止クールダウン
+    let isTargetVisible = false;
+    let isCoolingDown = false;
 
     const scoreVal = document.getElementById('score-val');
     const hitFlash = document.getElementById('hit-flash');
     const shotFlash = document.getElementById('shot-flash');
     const targetEntity = document.querySelector('#target-0');
 
-    // -------------------------------------------------------------
-    // Web Audio API による効果音生成（外部ファイル読み込み不要）
-    // -------------------------------------------------------------
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-    // ① 射撃音（レーザー風SE）
     function playShotSE() {
       if (audioCtx.state === 'suspended') audioCtx.resume();
       const osc = audioCtx.createOscillator();
@@ -134,7 +119,6 @@
       osc.stop(audioCtx.currentTime + 0.12);
     }
 
-    // ② 命中音（爆発/ヒット風SE）
     function playHitSE() {
       if (audioCtx.state === 'suspended') audioCtx.resume();
       const osc = audioCtx.createOscillator();
@@ -150,54 +134,33 @@
       osc.stop(audioCtx.currentTime + 0.2);
     }
 
-    // -------------------------------------------------------------
-    // ターゲット検知イベント (MindAR)
-    // -------------------------------------------------------------
-    targetEntity.addEventListener("targetFound", () => {
-      isTargetVisible = true;
-    });
+    targetEntity.addEventListener("targetFound", () => { isTargetVisible = true; });
+    targetEntity.addEventListener("targetLost", () => { isTargetVisible = false; });
 
-    targetEntity.addEventListener("targetLost", () => {
-      isTargetVisible = false;
-    });
-
-    // -------------------------------------------------------------
-    // 画面タップ / 物理トリガー押し込み時の処理
-    // -------------------------------------------------------------
-    window.addEventListener('pointerdown', (e) => {
-      // リザルト表示中は反応させない
+    window.addEventListener('pointerdown', () => {
       if (document.getElementById('result-modal').style.display === 'flex') return;
 
-      // 1. 発射音と空撃ちフラッシュ
       playShotSE();
       shotFlash.style.opacity = '1';
       setTimeout(() => { shotFlash.style.opacity = '0'; }, 50);
 
-      // 2. ターゲット捉え中に撃てた場合 ──> HIT判定！
       if (isTargetVisible && !isCoolingDown) {
         score += 100;
         scoreVal.textContent = score;
-
         playHitSE();
-
-        // 緑色のヒットエフェクト
         hitFlash.style.opacity = '1';
         setTimeout(() => { hitFlash.style.opacity = '0'; }, 120);
 
-        // クールダウン（1秒間は同じターゲットでの連打加点を防止）
         isCoolingDown = true;
         setTimeout(() => { isCoolingDown = false; }, 1000);
       }
     });
 
-    // -------------------------------------------------------------
-    // コースターゴール時の終了処理（タイマーまたは手動で呼び出し）
-    // 例: 40秒後に自動でゲーム終了・リザルト画面表示
-    // -------------------------------------------------------------
+    // 40秒後に終了
     setTimeout(() => {
       document.getElementById('result-modal').style.display = 'flex';
       document.getElementById('final-score').textContent = score;
-    }, 40000); // ※コースターの1周の時間（ミリ秒）に合わせて調整してください
+    }, 40000);
   </script>
 </body>
 </html>
