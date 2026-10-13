@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>担任救出！ARコースターシューティング</title>
 
-  <!-- 安定動作実績のあるバージョンに固定 -->
+  <!-- 安定版ライブラリ -->
   <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.2/dist/mindar-image-aframe.prod.js"></script>
 
@@ -13,18 +13,22 @@
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
     body, html { width: 100%; height: 100%; overflow: hidden; font-family: sans-serif; background: #000; }
 
-    /* カメラ映像（videoタグ）を強制表示させる強力なスタイル */
-    video {
-      position: absolute !important;
-      top: 0 !important;
-      left: 0 !important;
-      width: 100vw !important;
-      height: 100vh !important;
-      object-fit: cover !important;
-      z-index: -2 !important;
+    /* 背景に直接固定表示する自前カメラ映像 */
+    #camera-feed {
+      position: absolute; top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      object-fit: cover;
+      z-index: 1;
     }
 
-    /* スタート画面（iOSのカメラ＆音声ブロック解除用） */
+    /* A-Frameのキャンバスを背景透過にしてカメラの上に重ねる */
+    a-scene {
+      position: absolute; top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      z-index: 2;
+    }
+
+    /* スタート画面 */
     #start-overlay {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 999;
       background: rgba(0, 0, 0, 0.9); display: flex; flex-direction: column;
@@ -36,6 +40,7 @@
       box-shadow: 0 0 20px #00ffcc; cursor: pointer;
     }
 
+    /* HUD・UI系 (最前面) */
     #ui-layer {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
       display: flex; flex-direction: column; justify-content: space-between; padding: 20px;
@@ -85,13 +90,17 @@
 </head>
 <body>
 
-  <!-- スマホ用 スタート画面 (タップでカメラを起動) -->
+  <!-- 自前の背面カメラ描画用videoタグ (iOS対策の最重要パーツ) -->
+  <video id="camera-feed" autoplay playsinline muted></video>
+
+  <!-- スタート画面 -->
   <div id="start-overlay">
     <h2>担任救出ミッション</h2>
-    <p style="margin-top:10px; font-size:14px; color:#aaa;">タップしてカメラとサウンドを有効化してください</p>
+    <p style="margin-top:10px; font-size:14px; color:#aaa;">タップしてカメラとゲームを起動します</p>
     <button id="start-btn">GAME START</button>
   </div>
 
+  <!-- ゲームUI -->
   <div id="ui-layer">
     <div class="hud-header">
       <div>SCORE: <span id="score-val">0</span></div>
@@ -110,11 +119,12 @@
     <button class="btn" onclick="location.reload()">もう一度リトライ</button>
   </div>
 
-  <!-- AR Scene (自動起動オフ、タップでJSから起動) -->
+  <!-- AR Scene (背景キャンバスを透明化) -->
   <a-scene 
-    mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiLoading: no; uiError: yes;" 
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: false; uiLoading: no; uiError: no;" 
+    embedded
     color-space="sRGB" 
-    renderer="colorManagement: true, physicallyCorrectLights" 
+    renderer="colorManagement: true; alpha: true;" 
     vr-mode-ui="enabled: false" 
     device-orientation-permission-ui="enabled: false">
     
@@ -134,32 +144,45 @@
     const targetEntity = document.querySelector('#target-0');
     const startOverlay = document.getElementById('start-overlay');
     const startBtn = document.getElementById('start-btn');
+    const videoEl = document.getElementById('camera-feed');
 
     let audioCtx;
 
-    // スタートボタンを押した時にカメラとWeb Audioを完全起動
+    // ボタンタップでカメラ権限を取得＆映像ストリームをvideoタグに直接接続
     startBtn.addEventListener('click', async () => {
-      // 1. サウンドのロック解除
+      // 1. Web Audio起動
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-      // 2. MindARのカメラ起動
-      const sceneEl = document.querySelector('a-scene');
-      const arSystem = sceneEl.systems["mindar-image-system"];
-      
       try {
-        await arSystem.start(); // 明示的にカメラ起動
-        startOverlay.style.display = 'none'; // スタート画面を消す
+        // 2. ブラウザ標準機能で背面カメラ映像を取得（iOSブロックを回避）
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { exact: "environment" } },
+          audio: false
+        }).catch(async () => {
+          // 環境によってexact指定で落ちる場合のフォールバック
+          return await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+        });
+
+        videoEl.srcObject = stream;
+        await videoEl.play();
+
+        // 3. MindARの画像認識システムを開始
+        const sceneEl = document.querySelector('a-scene');
+        const arSystem = sceneEl.systems["mindar-image-system"];
+        await arSystem.start();
+
+        startOverlay.style.display = 'none';
         isGameStarted = true;
 
-        // 40秒タイマー開始
+        // 40秒タイマー
         setTimeout(() => {
           document.getElementById('result-modal').style.display = 'flex';
           document.getElementById('final-score').textContent = score;
         }, 40000);
 
       } catch (err) {
-        alert("カメラ起動エラー: " + err.name + "\n" + err.message + "\nGitHubに targets.mind が正しく置かれているか確認してください。");
+        alert("カメラの起動に失敗しました:\n" + err.message + "\n\nブラウザのカメラ許可設定を確認してください。");
       }
     });
 
@@ -196,7 +219,6 @@
     targetEntity.addEventListener("targetFound", () => { isTargetVisible = true; });
     targetEntity.addEventListener("targetLost", () => { isTargetVisible = false; });
 
-    // 画面タップで射撃
     window.addEventListener('pointerdown', (e) => {
       if (!isGameStarted || e.target === startBtn) return;
       if (document.getElementById('result-modal').style.display === 'flex') return;
